@@ -1,0 +1,49 @@
+# compilación y artefactos de CMake
+/build/
+/build_android/
+/CMakeSettings.json
+/CMakeUserPresets.json
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Visual Studio / MSVC temporales
+.vs/
+*.user
+*.suo
+*.sln
+*.vcxproj
+*.filters
+*.db
+*.opendb
+*.ipch
+*.sdf
+
+# Clion / Rider / JetBrains
+.idea/
+cmake-build-*/
+
+# VS Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Binarios y librerías generadas
+*.dll
+*.so
+*.dylib
+*.lib
+*.a
+*.exe
+*.out
+*.app
+
+# Logs
+*.log
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db

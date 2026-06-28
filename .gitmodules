@@ -1,0 +1,3 @@
+[submodule "external/Spatial_Audio_Framework"]
+	path = external/Spatial_Audio_Framework
+	url = https://github.com/leomccormack/Spatial_Audio_Framework.git
