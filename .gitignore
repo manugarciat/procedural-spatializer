@@ -47,3 +47,7 @@ cmake-build-*/
 # Archivos de sistema
 .DS_Store
 Thumbs.db
+
+# Ignorar dependencias descargadas en external, a excepcion del submodulo SAF
+/external/*
+!/external/Spatial_Audio_Framework/
