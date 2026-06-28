@@ -208,19 +208,19 @@ SPAT_API void destroy_spatializer(void* instance) {
 extern "C" {
 
 JNIEXPORT jlong JNICALL
-Java_com_mnlgt_procedural_1vr_NativeSpatializer_create(JNIEnv *env, jobject thiz, jint order, jint sample_rate, jint block_size) {
+Java_com_mnlgt_spatializer_NativeSpatializer_create(JNIEnv *env, jobject thiz, jint order, jint sample_rate, jint block_size) {
     (void)env; (void)thiz;
     return reinterpret_cast<jlong>(create_spatializer(order, sample_rate, block_size));
 }
 
 JNIEXPORT void JNICALL
-Java_com_mnlgt_procedural_1vr_NativeSpatializer_setOrientation(JNIEnv *env, jobject thiz, jlong pointer, jfloat qx, jfloat qy, jfloat qz, jfloat qw) {
+Java_com_mnlgt_spatializer_NativeSpatializer_setOrientation(JNIEnv *env, jobject thiz, jlong pointer, jfloat qx, jfloat qy, jfloat qz, jfloat qw) {
     (void)env; (void)thiz;
     set_listener_orientation(reinterpret_cast<void*>(pointer), qx, qy, qz, qw);
 }
 
 JNIEXPORT void JNICALL
-Java_com_mnlgt_procedural_1vr_NativeSpatializer_process(JNIEnv *env, jobject thiz, jlong pointer, jfloatArray input, jfloatArray output) {
+Java_com_mnlgt_spatializer_NativeSpatializer_process(JNIEnv *env, jobject thiz, jlong pointer, jfloatArray input, jfloatArray output) {
     (void)thiz;
     auto* spat = reinterpret_cast<SpatializerInstance*>(pointer);
     if (!spat) return;
@@ -237,7 +237,7 @@ Java_com_mnlgt_procedural_1vr_NativeSpatializer_process(JNIEnv *env, jobject thi
 }
 
 JNIEXPORT void JNICALL
-Java_com_mnlgt_procedural_1vr_NativeSpatializer_destroy(JNIEnv *env, jobject thiz, jlong pointer) {
+Java_com_mnlgt_spatializer_NativeSpatializer_destroy(JNIEnv *env, jobject thiz, jlong pointer) {
     (void)env; (void)thiz;
     destroy_spatializer(reinterpret_cast<void*>(pointer));
 }
