@@ -27,10 +27,15 @@ procedural-spatializer/
 │   ├── spatializer.h           # Interfaz pública en C
 │   ├── spatializer.cpp         # Implementación del DSP, JNI y de-entrelazador
 │   └── test_main.cpp           # Ejecutable de prueba offline para PC
-└── external/
-    ├── Spatial_Audio_Framework/ # Submódulo Git de SAF (Núcleo de audio)
-    ├── openblas/                # Cabeceras y binarios precompilados de OpenBLAS
-    └── eigen/                   # Cabeceras header-only de Eigen
+├── external/
+│   ├── Spatial_Audio_Framework/ # Submódulo Git de SAF (Núcleo de audio)
+│   ├── openblas/                # Cabeceras y binarios precompilados de OpenBLAS
+│   └── eigen/                   # Cabeceras header-only de Eigen
+└── kotlin/
+    └── com/
+        └── mnlgt/
+            └── spatializer/
+                └── NativeSpatializer.kt # Wrapper Kotlin listo para usar en tu proyecto Android
 ```
 
 ---
@@ -114,25 +119,26 @@ La forma más sencilla en Windows es instalar **OpenBLAS**:
 
 ## Integración en Kotlin / Android
 
-Para usar la librería compilada en una aplicación nativa de Horizon OS / Android:
+Para usar la librería en una aplicación nativa de Android:
 
-1. Copia `libprocedural_spatializer.so` y `libopenblas.so` en el directorio de tu proyecto Android:
+1. **Copiar las Librerías Nativa:**
+   Copia `libprocedural_spatializer.so` (generada por la compilación) y `libopenblas.so` (dependencia de Maven) en el directorio de tu proyecto Android:
    `app/src/main/jniLibs/arm64-v8a/`
-2. Carga las librerías dinámicas en tu código Kotlin asegurándote de cargar `openblas` primero:
+
+2. **Copiar el Wrapper Kotlin:**
+   Copia la carpeta de código `kotlin/com/mnlgt/spatializer/` al directorio de código fuente de tu app:
+   `app/src/main/java/com/mnlgt/spatializer/`
+
+3. **Uso en código:**
+   Carga la clase, instancia el decodificador nativo, y lanza la preparación de `WavPlayer` siempre en un **hilo secundario (Background Thread)** para evitar colgar el hilo de renderizado de VR:
    ```kotlin
-   init {
-       System.loadLibrary("openblas")
-       System.loadLibrary("procedural_spatializer")
-   }
-   ```
-3. Lanza la preparación de `WavPlayer` siempre en un **hilo secundario (Background Thread)** para evitar colgar el hilo principal de renderizado de VR, lo cual provocaría que Oculus cierre la aplicación con `signal 9`:
-   ```kotlin
+   import com.mnlgt.spatializer.NativeSpatializer
+
    Thread {
-       val wp = WavPlayer(file, ::log)
-       if (wp.parse() && wp.prepare()) {
-           runOnUiThread {
-               wp.play()
-           }
-       }
+       // La clase se encarga internamente de cargar System.loadLibrary("openblas") 
+       // y System.loadLibrary("procedural_spatializer") en el orden correcto.
+       val spatializer = NativeSpatializer.createInstance(order = 3, sampleRate = 48000, blockSize = 512)
+       
+       // ... procesar audio ...
    }.start()
    ```
