@@ -10,13 +10,20 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 if(MSVC)
     add_compile_options(/W4 /O2)
 else()
-    add_compile_options(-Wall -Wextra -O3)
+    add_compile_options(-Wall -Wextra -Ofast -ffast-math -ftree-vectorize)
 endif()
 
 # Definir la librería compartida
 add_library(procedural_spatializer SHARED
     src/spatializer.h
     src/spatializer.cpp
+    src/dsp/fast_math.h
+    src/dsp/synth_fm.h
+    src/dsp/synth_fm.cpp
+    src/dsp/noise.h
+    src/dsp/noise.cpp
+    src/dsp/effects.h
+    src/dsp/effects.cpp
 )
 
 target_include_directories(procedural_spatializer PUBLIC
@@ -49,7 +56,7 @@ if(EXISTS "${SAF_DIR}/CMakeLists.txt")
     set(SAF_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 
     add_subdirectory(${SAF_DIR} external/saf_build)
-    target_link_libraries(procedural_spatializer PRIVATE saf saf_example_ambi_bin)
+    target_link_libraries(procedural_spatializer PRIVATE saf saf_example_ambi_bin saf_example_ambi_enc)
     
     if(ANDROID)
         # Forzar el enlace de la librería de OpenBLAS en Android

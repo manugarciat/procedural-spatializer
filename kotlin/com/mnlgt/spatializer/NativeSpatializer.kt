@@ -36,7 +36,7 @@ class NativeSpatializer private constructor(
      *                    (Su tamaño debe ser de: blockSize * num_channels)
      * @param outputBuffer Array de salida estéreo plano. (Su tamaño debe ser de: blockSize * 2)
      */
-    fun processBlock(inputBuffer: FloatArray, outputBuffer: FloatArray) {
+    fun processBlock(inputBuffer: FloatArray?, outputBuffer: FloatArray) {
         if (nativeInstancePointer != 0L) {
             process(nativeInstancePointer, inputBuffer, outputBuffer)
         }
@@ -56,14 +56,80 @@ class NativeSpatializer private constructor(
         release()
     }
 
+    // --- Métodos Públicos para Fuentes Dinámicas ---
+
+    /**
+     * Crea un sintetizador FM nativo y lo añade al bus de mezcla.
+     * @return Puntero/handle (Long) a la instancia de FMSource.
+     */
+    fun addFMSource(): Long {
+        if (nativeInstancePointer == 0L) return 0L
+        return addFMSource(nativeInstancePointer)
+    }
+
+    /**
+     * Crea un generador de ruido nativo y lo añade al bus de mezcla.
+     * @return Puntero/handle (Long) a la instancia de NoiseSource.
+     */
+    fun addNoiseSource(): Long {
+        if (nativeInstancePointer == 0L) return 0L
+        return addNoiseSource(nativeInstancePointer)
+    }
+
+    /**
+     * Remueve una fuente del mezclador y libera su memoria nativa.
+     */
+    fun removeSource(sourcePointer: Long) {
+        if (nativeInstancePointer != 0L && sourcePointer != 0L) {
+            removeSource(nativeInstancePointer, sourcePointer)
+        }
+    }
+
     // --- Declaraciones de Métodos Nativos (JNI) ---
     private external fun create(order: Int, sampleRate: Int, blockSize: Int): Long
     private external fun setOrientation(pointer: Long, qx: Float, qy: Float, qz: Float, qw: Float)
-    private external fun process(pointer: Long, input: FloatArray, output: FloatArray)
+    private external fun process(pointer: Long, input: FloatArray?, output: FloatArray)
     private external fun destroy(pointer: Long)
+
+    // JNI de creación de fuentes
+    private external fun addFMSource(pointer: Long): Long
+    private external fun addNoiseSource(pointer: Long): Long
+    private external fun removeSource(pointer: Long, sourcePointer: Long)
+
+    // JNI de control de fuentes (Públicos directamente para evitar sobrecargas conflictivas)
+    external fun setSourcePosition(sourcePointer: Long, azimuth: Float, elevation: Float, distance: Float)
+    external fun setSourceParameter(sourcePointer: Long, paramId: Int, value: Float)
+    external fun triggerSynthNote(sourcePointer: Long, frequency: Float, velocity: Float, decayTimeMs: Float)
 
     companion object {
         private var isLoaded = false
+
+        // --- Identificadores de Parámetros Nativos ---
+        // FM Synth
+        const val PARAM_FM_RATIO = 2
+        const val PARAM_FM_INDEX = 3
+        const val PARAM_FM_GATE = 4
+
+        // Envíos de efectos del bus
+        const val PARAM_DELAY_SEND = 5
+        const val PARAM_REVERB_SEND = 6
+
+        // Noise Generator
+        const val PARAM_NOISE_TYPE = 10
+        const val PARAM_NOISE_FILTER = 11
+        const val PARAM_NOISE_CUTOFF = 12
+        const val PARAM_NOISE_Q = 13
+        const val PARAM_NOISE_VOLUME = 14
+        const val PARAM_NOISE_GATE = 15
+
+        // Constantes del tipo de ruido
+        const val NOISE_TYPE_WHITE = 0.0f
+        const val NOISE_TYPE_PINK = 1.0f
+
+        // Constantes del filtro de ruido
+        const val FILTER_NONE = 0.0f
+        const val FILTER_LOWPASS = 1.0f
+        const val FILTER_BANDPASS = 2.0f
 
         /**
          * Inicializa y carga las librerías nativas compartidas.

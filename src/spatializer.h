@@ -44,6 +44,57 @@ SPAT_API void process_audio_block(void* instance, const float* input_buffer, flo
  */
 SPAT_API void destroy_spatializer(void* instance);
 
+// =========================================================================
+// API DE SÍNTESIS PROCEDIMENTAL INTERACTIVA Y FUENTES DINÁMICAS
+// =========================================================================
+
+/**
+ * @brief Crea e inicializa una fuente de Sintetizador FM nativa y la añade al mezclador.
+ * @param instance Puntero a la instancia del espacializador.
+ * @return Puntero opaco a la instancia del sintetizador FM creado.
+ */
+SPAT_API void* add_fm_source(void* instance);
+
+/**
+ * @brief Crea e inicializa una fuente de Ruido Procedimental nativa y la añade al mezclador.
+ * @param instance Puntero a la instancia del espacializador.
+ * @return Puntero opaco a la instancia del generador de ruido creado.
+ */
+SPAT_API void* add_noise_source(void* instance);
+
+/**
+ * @brief Elimina una fuente sonora del mezclador y libera su memoria.
+ * @param instance Puntero a la instancia del espacializador.
+ * @param source_ptr Puntero opaco a la fuente a eliminar (puede ser FM o Ruido).
+ */
+SPAT_API void remove_source(void* instance, void* source_ptr);
+
+/**
+ * @brief Configura la posición espacial 3D de una fuente en coordenadas esféricas.
+ * @param source_ptr Puntero opaco a la fuente sonora.
+ * @param azimuth_deg Ángulo horizontal en grados (-180 a 180).
+ * @param elevation_deg Ángulo vertical en grados (-90 a 90).
+ * @param distance Distancia relativa (afecta la atenuación).
+ */
+SPAT_API void set_source_position(void* source_ptr, float azimuth_deg, float elevation_deg, float distance);
+
+/**
+ * @brief Modula un parámetro numérico de una fuente de audio.
+ * @param source_ptr Puntero opaco a la fuente sonora.
+ * @param param_id Identificador del parámetro a modificar (específico por tipo de fuente).
+ * @param value Valor flotante a asignar.
+ */
+SPAT_API void set_source_parameter(void* source_ptr, int param_id, float value);
+
+/**
+ * @brief Dispara un pulso/nota en un sintetizador FM nativo.
+ * @param source_ptr Puntero opaco a la fuente sonora (debe ser un FMSynth).
+ * @param frequency Frecuencia fundamental en Hz.
+ * @param velocity Amplitud o volumen del pulso (0.0 a 1.0).
+ * @param decay_time_ms Tiempo de decaimiento en milisegundos.
+ */
+SPAT_API void trigger_synth_note(void* source_ptr, float frequency, float velocity, float decay_time_ms);
+
 #ifdef __cplusplus
 }
 #endif
