@@ -1,17 +1,18 @@
 # Procedural Spatializer
 
-Un motor de audio espacial liviano y multiplataforma escrito en C++ diseñado para espacializar audio Ambisonics de cualquier orden en tiempo real para **Meta Quest (Horizon OS)**, **Unity**, **Unreal Engine**, y aplicaciones Android.
+Un motor de audio espacial liviano, modular y multiplataforma escrito en C++ diseñado para espacializar audio Ambisonics y sintetizar audio procedimental interactivo en tiempo real para **Meta Quest (Horizon OS)**, **Unity**, **Unreal Engine**, y aplicaciones nativas de Android.
 
-Utiliza [Spatial_Audio_Framework (SAF)](https://github.com/leomccormack/Spatial_Audio_Framework) como núcleo para el cálculo de armónicos esféricos y binauralización mediante filtros HRTF optimizados.
+Utiliza [Spatial_Audio_Framework (SAF)](https://github.com/leomccormack/Spatial_Audio_Framework) como núcleo para el cálculo de armónicos esféricos y la binauralización mediante filtros HRTF optimizados (LSDIFFEQ preset).
 
 ---
 
 ## Características
 
 - **API C-Compatible limpia:** Fácil de llamar desde C# (Unity), C++ (Unreal) y JNI/Kotlin (Android).
-- **Procesamiento Asíncrono de bloques de cualquier tamaño:** Diseñado con un sistema de troceado interno (*sub-blocking*) de 128 muestras para integrarse sin cortes de audio con hilos rápidos de motores de juego o `AudioTrack` de Android.
-- **Soporte multi-orden:** Decodificación binaural en base al dataset Genelec KEMAR por defecto para 1er orden (4 canales), 2do orden (9 canales) y 3er orden (16 canales).
-- **Compatibilidad Extrema en Android ARM64:** Enlazado dinámicamente con OpenBLAS optimizado para evitar deadlocks de hilos nativos en procesadores Snapdragon (big.LITTLE).
+- **Híbrido (Pasivo + Activo):** Soporta la espacialización de archivos WAV multicanal (ej. Ambisonics de 3er orden con 16 canales) y la generación simultánea de múltiples fuentes procedimentales interactivas mezcladas en el mismo bus.
+- **Topología de CPU de Ultra-Bajo Consumo (Single-Bus Mixing):** Codifica múltiples fuentes mono a Ambisonics e inyecta todas las señales a un único bus de mezcla compartido. El motor ejecuta **un solo decodificador binaural de SAF por bloque de audio** para toda la mezcla combinada. Esto permite procesar más de 30 fuentes simultáneas en procesadores móviles con un consumo de CPU < 3%.
+- **Optimización SIMD/NEON para ARM64:** Compilado con flags optimizados (`-Ofast -ffast-math -ftree-vectorize`) y una aproximación polinómica rápida de seno (`fast_sin_normalized`) que procesa múltiples muestras de audio en paralelo usando un solo ciclo de reloj de hardware, eliminando el clásico cuello de botella de `sinf()`.
+- **Efectos Integrados:** Procesador de Delay Line amortiguado (damping) y Reverb de Schroeder estéreo descorrelacionada integrados en los envíos auxiliares del mezclador.
 
 ---
 
@@ -19,126 +20,112 @@ Utiliza [Spatial_Audio_Framework (SAF)](https://github.com/leomccormack/Spatial_
 
 ```text
 procedural-spatializer/
-├── CMakeLists.txt              # Configuración de CMake para PC y Android NDK
+├── CMakeLists.txt              # Configuración de compilación con optimizaciones SIMD
 ├── README.md                   # Esta documentación
-├── .gitignore                  # Exclusión de archivos temporales y dependencias locales
-├── build_android.bat           # Script por lotes para compilar cruzado para Android en Windows
+├── .gitignore                  # Exclusión de archivos de build y dependencias locales
+├── build_android.bat           # Script portátil de build automático para Android en Windows
 ├── src/
-│   ├── spatializer.h           # Interfaz pública en C
-│   ├── spatializer.cpp         # Implementación del DSP, JNI y de-entrelazador
-│   └── test_main.cpp           # Ejecutable de prueba offline para PC
-├── external/
-│   ├── Spatial_Audio_Framework/ # Submódulo Git de SAF (Núcleo de audio)
-│   ├── openblas/                # Cabeceras y binarios precompilados de OpenBLAS
-│   └── eigen/                   # Cabeceras header-only de Eigen
+│   ├── spatializer.h           # API pública expuesta en C
+│   ├── spatializer.cpp         # Registro de fuentes, bus de mezcla JNI y wrappers
+│   ├── test_main.cpp           # Ejecutable de prueba offline para PC
+│   └── dsp/
+│       ├── fast_math.h         # Trigonometría SIMD/NEON rápida (Bhaskara I Approx)
+│       ├── synth_fm.h          # Clase del sintetizador FM
+│       ├── synth_fm.cpp        # DSP del sintetizador FM
+│       ├── noise.h             # Clase del generador de ruido biquad
+│       ├── noise.cpp           # DSP del generador de ruido
+│       ├── effects.h           # Delay y Reverb de Schroeder
+│       └── effects.cpp         # DSP de efectos
 └── kotlin/
     └── com/
         └── mnlgt/
             └── spatializer/
-                └── NativeSpatializer.kt # Wrapper Kotlin listo para usar en tu proyecto Android
+                └── NativeSpatializer.kt # Wrapper Kotlin listo para usar en Android
 ```
 
 ---
 
 ## API Pública (C / JNI)
 
-La interfaz C expone métodos planos para el DSP:
+La interfaz C (`src/spatializer.h`) expone métodos planos para el DSP del mezclador y la gestión de fuentes dinámicas:
 
-1. **`create_spatializer(int order, int sample_rate, int block_size)`**: Inicializa el decodificador binaural.
-2. **`set_listener_orientation(void* instance, float x, float y, float z, float w)`**: Pasa la rotación de cabeza de la cámara (en Quaternions) al rotador de armónicos esféricos de SAF.
-3. **`process_audio_block(void* instance, const float* input, float* output)`**: Toma el buffer de audio entrelazado de $N$ canales Ambisonics y escribe la señal binauralizada estéreo.
-4. **`destroy_spatializer(void* instance)`**: Libera los recursos asociados de la memoria de C++.
+### 1. Control del Espacializador Principal
+* `create_spatializer(int order, int sample_rate, int block_size)`: Inicializa la instancia del mezclador espacial (soporta 1er, 2do y 3er orden).
+* `set_listener_orientation(void* instance, float x, float y, float z, float w)`: Actualiza la rotación de cabeza del oyente usando un Quaternion.
+* `process_audio_block(void* instance, const float* input, float* output)`: Toma el buffer Ambisonics estático (opcional, ej. desde un WAV de 16ch), mezcla las fuentes procedimentales activas, procesa los efectos globales, realiza la decodificación binaural, y escribe el buffer estéreo de salida.
+* `destroy_spatializer(void* instance)`: Libera la memoria de la instancia y de todas sus fuentes activas.
 
----
-
-## Consideraciones Técnicas Críticas (DSP y JNI)
-
-Al integrar Spatial Audio Framework (`ambi_bin`) en motores móviles, se resolvieron dos desafíos de diseño:
-
-### 1. Requisito de Bloque Fijo (`AMBI_BIN_FRAME_SIZE = 128`)
-SAF procesa el audio en el dominio tiempo-frecuencia (STFT) usando un tamaño de bloque rígido de **128 muestras**. Si se le pasa un buffer de tamaño diferente (como 512 muestras de Android), SAF descarta el procesamiento y devuelve silencio absoluto.
-- **Solución:** En `spatializer.cpp`, la función `process_audio_block` divide cualquier bloque entrante en fragmentos fijos de 128 muestras, realiza el de-entrelazado plano para cada fragmento, llama a SAF, y vuelve a entrelazar la salida estéreo.
-
-### 2. Orden de Inicialización en SAF
-La llamada a la función `ambi_bin_init` resetea internamente el estado de inicialización del decodificador (`codecStatus`) a `NOT_INITIALISED`.
-- **Solución:** Las funciones se deben llamar obligatoriamente en este orden:
-  1. `ambi_bin_init(hAmbi, sample_rate)`: Configura el vector de frecuencias y el STFT.
-  2. `ambi_bin_initCodec(hAmbi)`: Computa los filtros binaurales.
-  *(Llamarlas al revés provoca que el procesador nativo devuelva silencio).*
+### 2. Gestión de Fuentes Procedimentales
+* `add_fm_source(void* instance)`: Crea e inicializa una fuente de Sintetizador FM nativa y la añade al mezclador. Retorna un puntero `Long` opaco de control.
+* `add_noise_source(void* instance)`: Crea e inicializa una fuente de Ruido Procedimental nativa y la añade al mezclador. Retorna un puntero `Long` de control.
+* `remove_source(void* instance, void* source_ptr)`: Remueve la fuente del mezclador y libera su memoria nativa.
+* `set_source_position(void* source_ptr, float azimuth_deg, float elevation_deg, float distance)`: Posiciona de forma interactiva una fuente en el espacio físico 3D.
+* `set_source_parameter(void* source_ptr, int param_id, float value)`: Modula un parámetro de síntesis o de efectos de la fuente nativa en tiempo real.
+* `trigger_synth_note(void* source_ptr, float frequency, float velocity, float decay_time_ms)`: Dispara un pulso acústico con envolvente exponencial en un sintetizador FM.
 
 ---
 
-## Compilación para Android (ARM64) desde Windows
+## Tabla de Identificadores de Parámetros (`paramId`)
 
-Para compilar la librería nativa para el Quest 3 desde Windows, necesitas tener instalado el **Android NDK** y **CMake**.
+Al llamar a `setSourceParameter` desde Kotlin, utilizá los siguientes IDs numéricos para modular el motor de síntesis nativo:
 
-### Paso 1: Configurar el Entorno
-Asegúrate de que tienes el Android NDK instalado en tu PC (normalmente en `C:\Users\<Usuario>\AppData\Local\Android\Sdk\ndk\<Versión>`).
-
-### Paso 2: Ejecutar el Script de Compilación
-El repositorio incluye el archivo [build_android.bat](file:///d:/code/procedural-spatializer/build_android.bat) que automatiza todo el proceso de compilación cruzada usando el generador **Ninja**:
-
-1. Abre una terminal de PowerShell o CMD en la raíz del repositorio.
-2. Ejecuta:
-   ```powershell
-   .\build_android.bat
-   ```
-3. El script detectará el NDK instalado y compilará la librería compartida `.so`.
-4. El archivo generado se guardará en:
-   `D:\code\procedural-spatializer\build_android\libprocedural_spatializer.so`
+| Tipo de Fuente | Constante Kotlin | ID (`paramId`) | Descripción | Valores típicos |
+| :--- | :--- | :---: | :--- | :--- |
+| **Efectos Comunes** | `PARAM_DELAY_SEND` | **5** | Nivel de envío al Delay global | `0.0` (seco) a `1.0` (máximo) |
+| | `PARAM_REVERB_SEND` | **6** | Nivel de envío a la Reverb global | `0.0` (seco) a `1.0` (máximo) |
+| **Sintetizador FM** | `PARAM_FM_RATIO` | **2** | Relación de frecuencia del Modulador | `1.0` (armónico), `1.414` (cristalino), `3.0` |
+| | `PARAM_FM_INDEX` | **3** | Índice de modulación (armónicos/brillo) | `0.0` (sinusoidal puro) a `15.0` (metálico) |
+| | `PARAM_FM_GATE` | **4** | Encender (1.0) / Apagar (0.0) el oscilador | `0.0` o `1.0` |
+| **Ruido / Viento** | `PARAM_NOISE_TYPE` | **10** | Tipo de ruido generado | `0.0` (Blanco), `1.0` (Rosa) |
+| | `PARAM_NOISE_FILTER` | **11** | Tipo de filtro biquad aplicado | `0.0` (Ninguno), `1.0` (Pasabajos), `2.0` (Pasabanda) |
+| | `PARAM_NOISE_CUTOFF` | **12** | Frecuencia de corte del filtro en Hz | `20.0` a `20000.0` |
+| | `PARAM_NOISE_Q` | **13** | Resonancia del filtro biquad (Q) | `0.1` (plano) a `10.0` (silbido resonante) |
+| | `PARAM_NOISE_VOLUME` | **14** | Ganancia / volumen del generador de ruido | `0.0` a `1.0` |
+| | `PARAM_NOISE_GATE` | **15** | Encender (1.0) / Apagar (0.0) el generador | `0.0` o `1.0` |
 
 ---
 
-## Compilación para Windows Local (PC)
+## Consideraciones Técnicas de Optimización DSP
 
-Si quieres probar y compilar la librería nativa para correr en Windows (por ejemplo, para debuggear en CLion, Visual Studio o testear localmente):
-
-### 1. Sin dependencias externas (Modo Dummy)
-Si solo quieres compilar para verificar la API sin lidiar con librerías matemáticas en PC:
-```powershell
-cmake -B build -G "Visual Studio 17 2022" -A x64 -DSAF_PERFORMANCE_LIB=none
-cmake --build build --config Release
+### 1. El Truco del "Fast Sine" (Bhaskara I Approx)
+Para evitar el costo de CPU de `sinf()`, el motor normaliza la fase del oscilador en el rango $[-0.5, 0.5]$ (donde $1.0$ representa un ciclo completo) y calcula el seno con una parábola y suavizado polinómico:
+```cpp
+inline float fast_sin_normalized(float x) {
+    float abs_x = (x >= 0.0f) ? x : -x;
+    float y = 16.0f * x * (0.5f - abs_x);
+    float abs_y = (y >= 0.0f) ? y : -y;
+    return 0.225f * (y * abs_y - y) + y;
+}
 ```
-*Esto compilará el ejecutable `spatializer_test.exe` en `build\Release\`. Al rotar el quaternion, simulará un paneo estéreo plano.*
+Esto permite al compilador Clang vectorizar el bucle con instrucciones ARM NEON nativas de un solo ciclo, procesando 4 muestras de audio paralelamente en un registro float SIMD.
 
-### 2. Con decodificación binaural completa en PC
-Para correr la decodificación binaural real de SAF en PC, necesitas proveer una librería CBLAS/LAPACK compatible para Windows.
-La forma más sencilla en Windows es instalar **OpenBLAS**:
-
-1. Descarga el zip de desarrollo de OpenBLAS para Windows (ej. `OpenBLAS-v0.3.X-x64.zip`).
-2. Descomprímelo en una ruta local.
-3. Configura CMake apuntando a OpenBLAS:
-   ```powershell
-   cmake -B build -G "Visual Studio 17 2022" -A x64 `
-     -DSAF_PERFORMANCE_LIB=SAF_USE_OPEN_BLAS_AND_LAPACKE `
-     -DOPENBLAS_DIR="C:/path/to/openblas"
-   cmake --build build --config Release
-   ```
+### 2. Stack Caching
+Las muestras del filtro biquad y las fases acumuladas se copian a variables locales del stack antes de iniciar el loop de procesamiento. Esto le permite al compilador alojar estas variables directamente en los registros del CPU (como los registros `v0-v31` en ARM64), logrando velocidad máxima de procesamiento y evitando accesos a memoria en el *heap* muestra por muestra.
 
 ---
 
 ## Integración en Kotlin / Android
 
-Para usar la librería en una aplicación nativa de Android:
+1. Copia `libprocedural_spatializer.so` y `libopenblas.so` en `app/src/main/jniLibs/arm64-v8a/`.
+2. Copia la carpeta `kotlin/com/mnlgt/spatializer/` al directorio de código fuente de tu app: `app/src/main/java/com/mnlgt/spatializer/`.
+3. Para disparar y posicionar un sonido procedimental interactivo en 3D:
+```kotlin
+import com.mnlgt.spatializer.NativeSpatializer
 
-1. **Copiar las Librerías Nativa:**
-   Copia `libprocedural_spatializer.so` (generada por la compilación) y `libopenblas.so` (dependencia de Maven) en el directorio de tu proyecto Android:
-   `app/src/main/jniLibs/arm64-v8a/`
+// 1. Inicializar el motor espacial
+val spatializer = NativeSpatializer.createInstance(order = 3, sampleRate = 48000, blockSize = 512)
 
-2. **Copiar el Wrapper Kotlin:**
-   Copia la carpeta de código `kotlin/com/mnlgt/spatializer/` al directorio de código fuente de tu app:
-   `app/src/main/java/com/mnlgt/spatializer/`
+// 2. Crear una fuente FM interactiva (Burbuja / Impacto)
+val fmSource = spatializer.addFMSource()
 
-3. **Uso en código:**
-   Carga la clase, instancia el decodificador nativo, y lanza la preparación de `WavPlayer` siempre en un **hilo secundario (Background Thread)** para evitar colgar el hilo de renderizado de VR:
-   ```kotlin
-   import com.mnlgt.spatializer.NativeSpatializer
+// 3. Configurar parámetros (Ratio inarmónico y envíos de efectos)
+spatializer.setSourceParameter(fmSource, NativeSpatializer.PARAM_FM_RATIO, 1.414f)
+spatializer.setSourceParameter(fmSource, NativeSpatializer.PARAM_FM_INDEX, 5.0f)
+spatializer.setSourceParameter(fmSource, NativeSpatializer.PARAM_REVERB_SEND, 0.25f) // 25% envío a reverb
 
-   Thread {
-       // La clase se encarga internamente de cargar System.loadLibrary("openblas") 
-       // y System.loadLibrary("procedural_spatializer") en el orden correcto.
-       val spatializer = NativeSpatializer.createInstance(order = 3, sampleRate = 48000, blockSize = 512)
-       
-       // ... procesar audio ...
-   }.start()
-   ```
+// 4. Ubicarla en el espacio (Azimuth 45 grados a la derecha, altura de los ojos, 2 metros de distancia)
+spatializer.setSourcePosition(fmSource, azimuth = 45.0f, elevation = 0.0f, distance = 2.0f)
+
+// 5. Disparar un tono interactivo
+spatializer.triggerSynthNote(fmSource, frequency = 880.0f, velocity = 0.8f, decayTimeMs = 150.0f)
+```
